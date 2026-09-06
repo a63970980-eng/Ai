@@ -1,0 +1,19 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      LIVE_TRADING_ENABLED: "false"
+      PAPER_TRADING_ENABLED: "true"
+      DATABASE_URL: postgresql://forex:forex@db:5432/forex
+    depends_on: [db]
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: forex
+      POSTGRES_PASSWORD: forex
+      POSTGRES_DB: forex
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data", "./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro"]
+volumes:
+  pgdata:
