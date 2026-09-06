@@ -2,7 +2,7 @@
 name = "ai-forex-trading-robot"
 version = "0.2.0"
 description = "Research-grade AI Forex trading system with risk controls, backtesting and broker adapters."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.34,<1",
@@ -22,7 +22,7 @@ dev = [
 line-length = 100
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
