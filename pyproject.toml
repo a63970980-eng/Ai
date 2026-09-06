@@ -1,6 +1,6 @@
 [project]
 name = "ai-forex-trading-robot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Research-grade AI Forex trading system with risk controls, backtesting and broker adapters."
 requires-python = ">=3.11"
 dependencies = [
@@ -15,10 +15,17 @@ dependencies = [
 dev = [
   "pytest>=8,<9",
   "ruff>=0.9,<1",
+  "mypy>=1.14,<2",
 ]
 
 [tool.ruff]
 line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
