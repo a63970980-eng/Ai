@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from forex_robot.domain.trading import MarketTick, OrderRequest
 from forex_robot.execution.broker import BrokerAdapter, BrokerPosition
@@ -14,7 +14,7 @@ class MT5Adapter(BrokerAdapter):
     def __init__(self, **credentials: Any) -> None:
         self.credentials = credentials
 
-    def _unavailable(self) -> None:
+    def _unavailable(self) -> NoReturn:
         raise ExternalBrokerNotConfigured("MT5 credentials/client are not configured")
 
     def account(self) -> dict[str, float]:
@@ -29,7 +29,12 @@ class MT5Adapter(BrokerAdapter):
     def place(self, order: OrderRequest) -> str:
         self._unavailable()
 
-    def modify(self, order_id: str, stop_loss: float | None = None, take_profit: float | None = None) -> None:
+    def modify(
+        self,
+        order_id: str,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> None:
         self._unavailable()
 
     def close(self, position_id: str) -> None:
