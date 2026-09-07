@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypedDict
 
 import pandas as pd
 
 from forex_robot.backtest.engine import BacktestResult, run_backtest
 from forex_robot.domain.models import Signal
+
+
+class BacktestKwargs(TypedDict, total=False):
+    spread: float
+    slippage: float
+    fee: float
+    risk_per_trade: float
+    execution_delay: int
 
 
 @dataclass(frozen=True)
@@ -55,7 +64,7 @@ def evaluate_walk_forward(
     validation: int = 250,
     test: int = 250,
     step: int | None = None,
-    **backtest_kwargs: float,
+    **backtest_kwargs: BacktestKwargs,
 ) -> list[WalkForwardResult]:
     results: list[WalkForwardResult] = []
     for window in windows(len(df), train, validation, test, step):
