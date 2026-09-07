@@ -7,6 +7,7 @@ import math
 import pandas as pd
 
 from forex_robot.backtest.execution_model import ExecutionModel
+from forex_robot.backtest.exits import BacktestExitConfig
 from forex_robot.domain.models import Side, Signal
 
 
@@ -51,6 +52,18 @@ def _validate_costs(spread: float, slippage: float, fee: float, risk_per_trade: 
         raise ValueError("execution_delay cannot be negative")
 
 
+def _atr(candles: pd.DataFrame, index: int, period: int = 14) -> float:
+    start = max(0, index - period + 1)
+    window = candles.iloc[start : index + 1]
+    previous = window.close.shift(1).fillna(window.close)
+    true_range = pd.concat(
+        [window.high - window.low, (window.high - previous).abs(), (window.low - previous).abs()],
+        axis=1,
+    ).max(axis=1)
+    value = float(true_range.mean())
+    return value if math.isfinite(value) and value > 0 else 0.0
+
+
 def run_backtest(
     candles: pd.DataFrame,
     signal_fn: Callable[[pd.DataFrame], Signal | None],
@@ -60,6 +73,7 @@ def run_backtest(
     risk_per_trade: float = 1.0,
     execution_delay: int = 0,
     account_equity: float = 100_000.0,
+    exit_config: BacktestExitConfig | None = None,
 ) -> BacktestResult:
     _validate_costs(spread, slippage, fee, risk_per_trade, execution_delay)
     if not math.isfinite(account_equity) or account_equity <= 0:
@@ -74,6 +88,7 @@ def run_backtest(
         raise ValueError("OHLC data must be finite and positive")
 
     model = ExecutionModel(spread=spread, slippage=slippage, commission=fee, delay_bars=execution_delay)
+    cfg = exit_config
     trades: list[BacktestTrade] = []
     i = 0
     while i < len(candles) - 1:
@@ -86,50 +101,89 @@ def run_backtest(
             break
         entry_mid = float(candles.close.iloc[entry_i])
         entry = model.entry_price(entry_mid, signal.side.value)
-        sl = float(signal.stop_loss)
-        tp = float(signal.take_profit)
-        if not all(math.isfinite(v) and v > 0 for v in (entry, sl, tp)):
+        initial_sl = float(signal.stop_loss)
+        initial_tp = float(signal.take_profit)
+        if not all(math.isfinite(v) and v > 0 for v in (entry, initial_sl, initial_tp)):
             raise ValueError("signal prices must be finite and positive")
-        if signal.side is Side.BUY and not sl < entry < tp:
+        if signal.side is Side.BUY and not initial_sl < entry < initial_tp:
             raise ValueError("BUY signal must satisfy stop_loss < entry < take_profit")
-        if signal.side is Side.SELL and not tp < entry < sl:
+        if signal.side is Side.SELL and not initial_tp < entry < initial_sl:
             raise ValueError("SELL signal must satisfy take_profit < entry < stop_loss")
-        risk_distance = abs(entry - sl)
+        risk_distance = abs(entry - initial_sl)
         risk_amount = account_equity * risk_per_trade
         units = risk_amount / risk_distance
         if not math.isfinite(units) or units <= 0:
             raise ValueError("calculated backtest position size is invalid")
 
+        stop = initial_sl
+        remaining = units
+        realized = 0.0
+        weighted_exit = 0.0
+        exited_units = 0.0
+        targets = tuple(entry + (1 if signal.side is Side.BUY else -1) * m * risk_distance
+                        for m in (cfg.take_profit_multiples if cfg else ()))
+        fractions = cfg.partial_exit_fractions if cfg else ()
+        next_target = 0
         j = entry_i
         exit_price = float(candles.close.iloc[-1])
         reason = "end_of_data"
         while j < len(candles):
             bar = candles.iloc[j]
-            if signal.side is Side.BUY:
-                hit_sl = float(bar.low) <= sl
-                hit_tp = float(bar.high) >= tp
-            else:
-                hit_sl = float(bar.high) >= sl
-                hit_tp = float(bar.low) <= tp
-            if hit_sl and hit_tp:
-                exit_price, reason = sl, "stop_loss_first"
+            if cfg:
+                current_atr = _atr(candles, j)
+                if cfg.break_even_after_r is not None:
+                    trigger = entry + (1 if signal.side is Side.BUY else -1) * cfg.break_even_after_r * risk_distance
+                    if (signal.side is Side.BUY and float(bar.high) >= trigger) or (signal.side is Side.SELL and float(bar.low) <= trigger):
+                        stop = max(stop, entry) if signal.side is Side.BUY else min(stop, entry)
+                if cfg.trailing_atr_multiple is not None and current_atr > 0:
+                    candidate = float(bar.close) - current_atr * cfg.trailing_atr_multiple if signal.side is Side.BUY else float(bar.close) + current_atr * cfg.trailing_atr_multiple
+                    stop = max(stop, candidate) if signal.side is Side.BUY else min(stop, candidate)
+
+            hit_sl = float(bar.low) <= stop if signal.side is Side.BUY else float(bar.high) >= stop
+            hit_target = next_target < len(targets) and (float(bar.high) >= targets[next_target] if signal.side is Side.BUY else float(bar.low) <= targets[next_target])
+            if hit_sl and hit_target:
+                # Conservative intrabar assumption: protective stop is reached first.
+                exit_price, reason = stop, "stop_loss_first"
+                realized += (exit_price - entry if signal.side is Side.BUY else entry - exit_price) * remaining
+                weighted_exit += exit_price * remaining
+                exited_units += remaining
+                remaining = 0.0
                 break
             if hit_sl:
-                exit_price, reason = sl, "stop_loss"
+                exit_price, reason = stop, "stop_loss"
+                realized += (exit_price - entry if signal.side is Side.BUY else entry - exit_price) * remaining
+                weighted_exit += exit_price * remaining
+                exited_units += remaining
+                remaining = 0.0
                 break
-            if hit_tp:
-                exit_price, reason = tp, "take_profit"
-                break
-            exit_price = float(bar.close)
+            if hit_target:
+                fraction = min(fractions[next_target], remaining / units) if fractions else 1.0
+                qty = units * fraction
+                qty = min(qty, remaining)
+                exit_price = targets[next_target]
+                realized += (exit_price - entry if signal.side is Side.BUY else entry - exit_price) * qty
+                weighted_exit += exit_price * qty
+                exited_units += qty
+                remaining -= qty
+                next_target += 1
+                if remaining <= units * 1e-12:
+                    reason = "take_profit_targets"
+                    remaining = 0.0
+                    break
             j += 1
 
-        raw_per_unit = exit_price - entry if signal.side is Side.BUY else entry - exit_price
-        pnl_value = raw_per_unit * units - model.round_trip_cost(units)
+        if remaining > 0:
+            exit_price = float(candles.close.iloc[-1])
+            realized += (exit_price - entry if signal.side is Side.BUY else entry - exit_price) * remaining
+            weighted_exit += exit_price * remaining
+            exited_units += remaining
+        pnl_value = realized - model.round_trip_cost(units)
+        average_exit = weighted_exit / exited_units if exited_units else exit_price
+        if reason == "end_of_data" and next_target:
+            reason = "partial_targets_end_of_data"
         trades.append(
-            BacktestTrade(
-                i, j, signal.side.value, entry, exit_price, sl, tp, units,
-                risk_amount, pnl_value, pnl_value / risk_amount, reason,
-            )
+            BacktestTrade(i, j, signal.side.value, entry, average_exit, initial_sl, initial_tp, units,
+                          risk_amount, pnl_value, pnl_value / risk_amount, reason)
         )
         i = max(j + 1, i + 1)
 
@@ -145,11 +199,9 @@ def run_backtest(
     gross_wins = sum(value for value in pnl_values if value > 0)
     gross_losses = -sum(value for value in pnl_values if value < 0)
     count = len(pnl_values)
-    return BacktestResult(
-        count, wins, losses, sum(pnl_values), mdd,
-        wins / count if count else 0.0,
-        gross_wins / gross_losses if gross_losses else math.inf,
-        sum(pnl_values) / count if count else 0.0,
-        sum(r_values) / count if r_values else 0.0,
-        tuple(trades),
-    )
+    return BacktestResult(count, wins, losses, sum(pnl_values), mdd,
+                          wins / count if count else 0.0,
+                          gross_wins / gross_losses if gross_losses else math.inf,
+                          sum(pnl_values) / count if count else 0.0,
+                          sum(r_values) / count if r_values else 0.0,
+                          tuple(trades))
