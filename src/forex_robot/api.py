@@ -10,14 +10,16 @@ from pydantic import BaseModel, Field
 
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
-from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse
+from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse, Signal
+from forex_robot.domain.trading import AccountState
 from forex_robot.execution.broker import PaperBroker
+from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
 from forex_robot.risk.manager import RiskManager
 from forex_robot.scoring import score_signal
 from forex_robot.settings import settings
-from forex_robot.strategies.scalping import momentum
+from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion, momentum, scalping, trend
 
-app = FastAPI(title="AI Forex Trading Platform", version="1.2.0", docs_url="/docs")
+app = FastAPI(title="AI Forex Trading Platform", version="1.3.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
 started = datetime.now(timezone.utc)
@@ -35,6 +37,21 @@ class MarketRequest(BaseModel):
     candles: list[dict] = Field(default_factory=list)
 
 
+class RiskGateRequest(BaseModel):
+    signal: Signal
+    spread: float = Field(ge=0)
+    slippage: float = Field(default=0.0, ge=0)
+    proposed_risk: float = Field(default=0.0, ge=0)
+    equity: float = Field(default=100_000.0, gt=0)
+    day_start_equity: float = Field(default=100_000.0, gt=0)
+    peak_equity: float = Field(default=100_000.0, gt=0)
+    open_positions: int = Field(default=0, ge=0)
+    consecutive_losses: int = Field(default=0, ge=0)
+    portfolio_risk: float = Field(default=0.0, ge=0)
+    kill_switch: bool = False
+    currency_exposure: dict[str, float] = Field(default_factory=dict)
+
+
 class BacktestRequest(MarketRequest):
     strategy: str = "momentum"
     spread: float = Field(default=0.0, ge=0)
@@ -42,6 +59,16 @@ class BacktestRequest(MarketRequest):
     fee: float = Field(default=0.0, ge=0)
     risk_per_trade: float = Field(default=1.0, gt=0, le=1)
     execution_delay: int = Field(default=0, ge=0)
+
+
+STRATEGIES = {
+    "momentum": momentum,
+    "scalping": scalping,
+    "mean_reversion": mean_reversion,
+    "breakout": breakout,
+    "trend": trend,
+    "liquidity": liquidity,
+}
 
 
 @app.get("/")
@@ -95,6 +122,37 @@ def position_size(request: PositionSizeRequest):
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.post("/api/v1/risk/evaluate")
+def evaluate_risk(request: RiskGateRequest):
+    account_state = AccountState(
+        equity=request.equity,
+        day_start_equity=request.day_start_equity,
+        peak_equity=request.peak_equity,
+        open_positions=request.open_positions,
+        consecutive_losses=request.consecutive_losses,
+        portfolio_risk=request.portfolio_risk,
+        kill_switch=request.kill_switch,
+        currency_exposure=request.currency_exposure,
+    )
+    limits = PortfolioRiskLimits(
+        max_daily_loss_fraction=settings.max_daily_loss,
+        max_drawdown_fraction=settings.max_drawdown,
+        max_open_positions=settings.max_open_positions,
+        max_spread=settings.max_spread_pips * 0.0001,
+        max_slippage=settings.max_slippage_pips * 0.0001,
+        min_signal_confidence=settings.min_signal_confidence,
+    )
+    decision = evaluate_portfolio(
+        account_state,
+        request.signal,
+        request.spread,
+        limits=limits,
+        proposed_risk=request.proposed_risk,
+        slippage=request.slippage,
+    )
+    return {"allowed": decision.allowed, "reason": decision.reason}
+
+
 @app.post("/api/v1/signals/score")
 def signal_score(request: ScoreRequest):
     return score_signal(request.components, request.weights).__dict__
@@ -116,11 +174,7 @@ def market(request: MarketRequest):
 @app.get("/api/v1/account")
 def account():
     state = paper_broker.account()
-    return {
-        **state,
-        "mode": "paper",
-        "live_enabled": settings.live_trading_enabled,
-    }
+    return {**state, "mode": "paper", "live_enabled": settings.live_trading_enabled}
 
 
 @app.get("/api/v1/positions")
@@ -140,21 +194,25 @@ def journal():
 
 @app.post("/api/v1/analytics")
 def analytics_endpoint(returns: list[float]):
-    return analytics(returns)
+    try:
+        return analytics(returns)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.post("/api/v1/backtest")
 def backtest(request: BacktestRequest):
     if len(request.candles) < 3:
         raise HTTPException(422, "at least 3 candles required")
-    if request.strategy != "momentum":
-        raise HTTPException(422, "unsupported strategy; available: momentum")
+    strategy_fn = STRATEGIES.get(request.strategy)
+    if strategy_fn is None:
+        raise HTTPException(422, f"unsupported strategy; available: {', '.join(STRATEGIES)}")
     df = pd.DataFrame(request.candles)
     if not {"open", "high", "low", "close"}.issubset(df.columns):
         raise HTTPException(422, "OHLC columns required")
     result = run_backtest(
         df,
-        lambda history: momentum(request.symbol, history),
+        lambda history: strategy_fn(request.symbol, history),
         spread=request.spread,
         slippage=request.slippage,
         fee=request.fee,
@@ -174,4 +232,5 @@ def risk():
         "max_open_positions": settings.max_open_positions,
         "max_spread_pips": settings.max_spread_pips,
         "max_slippage_pips": settings.max_slippage_pips,
+        "min_signal_confidence": settings.min_signal_confidence,
     }
