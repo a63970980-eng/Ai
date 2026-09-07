@@ -5,9 +5,9 @@ from forex_robot.domain.models import Side, Signal
 from forex_robot.features.indicators import atr, ema, rsi
 
 
-def _signal(symbol: str, side: Side, price: float, a: float, reason: str, confidence: float) -> Signal:
+def _signal(symbol: str, side: Side, price: float, a: float, reason: str, confidence: float) -> Signal | None:
     if not pd.notna(a) or a <= 0:
-        return None  # type: ignore[return-value]
+        return None
     risk = max(a * 1.2, price * 0.0005)
     if side is Side.BUY:
         stop, target = price - risk, price + risk * 1.6
