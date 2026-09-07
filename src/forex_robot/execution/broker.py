@@ -85,8 +85,9 @@ class PaperBroker(BrokerAdapter):
             return order_id
         self._orders[order_id] = order
         if not order.reduce_only:
+            side = order.side.value if hasattr(order.side, "value") else str(order.side).lower()
             self._positions[order_id] = BrokerPosition(
-                order.symbol, str(order.side.value), order.units, order.entry, order.stop_loss, order.take_profit
+                order.symbol, side, order.units, order.entry, order.stop_loss, order.take_profit
             )
         return order_id
 
