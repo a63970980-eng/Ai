@@ -18,10 +18,25 @@ class Settings:
     max_slippage_pips: float = 1.0
     min_signal_confidence: float = 0.65
 
+    def __post_init__(self) -> None:
+        if self.max_risk_per_trade <= 0 or self.max_risk_per_trade > 0.05:
+            raise ValueError("max_risk_per_trade must be in (0, 0.05]")
+        if not 0 < self.max_daily_loss <= 1 or not 0 < self.max_drawdown <= 1:
+            raise ValueError("loss and drawdown limits must be in (0, 1]")
+        if self.max_open_positions <= 0:
+            raise ValueError("max_open_positions must be positive")
+        if self.max_spread_pips <= 0 or self.max_slippage_pips < 0:
+            raise ValueError("spread must be positive and slippage non-negative")
+        if not 0 <= self.min_signal_confidence <= 1:
+            raise ValueError("min_signal_confidence must be in [0, 1]")
+        if self.live_trading_enabled and self.environment != "production":
+            raise ValueError("live trading requires production environment")
+
     @classmethod
     def from_env(cls) -> "Settings":
         def flag(name: str, default: bool) -> bool:
             return os.getenv(name, str(default)).lower() in {"1", "true", "yes", "on"}
+
         return cls(
             app_name=os.getenv("APP_NAME", cls.app_name),
             environment=os.getenv("ENVIRONMENT", cls.environment),
