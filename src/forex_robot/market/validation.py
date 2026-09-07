@@ -13,6 +13,9 @@ class ValidationReport:
     anomalies: int
 
 
+_TIMEFRAME_ALIASES = {"1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h", "4h": "4h", "1d": "1d"}
+
+
 def validate_ohlc(df: pd.DataFrame, timeframe: str | None = None) -> pd.DataFrame:
     required = {"open", "high", "low", "close"}
     missing = required - set(df.columns)
@@ -22,12 +25,7 @@ def validate_ohlc(df: pd.DataFrame, timeframe: str | None = None) -> pd.DataFram
     if out.empty:
         out.attrs["validation"] = ValidationReport(0, 0, 0, 0)
         return out
-    if not isinstance(out.index, pd.DatetimeIndex):
-        out.index = pd.to_datetime(out.index, utc=True)
-    elif out.index.tz is None:
-        out.index = out.index.tz_localize("UTC")
-    else:
-        out.index = out.index.tz_convert("UTC")
+    out.index = pd.to_datetime(out.index, utc=True)
     out = out.sort_index()
     duplicates = int(out.index.duplicated(keep="last").sum())
     if duplicates:
@@ -44,7 +42,8 @@ def validate_ohlc(df: pd.DataFrame, timeframe: str | None = None) -> pd.DataFram
         raise ValueError("invalid OHLC range")
     gaps = 0
     if timeframe:
-        expected = pd.Timedelta(timeframe)
+        rule = _TIMEFRAME_ALIASES.get(timeframe.lower(), timeframe)
+        expected = pd.Timedelta(rule)
         gaps = int((out.index.to_series().diff() > expected * 1.5).sum())
     out.attrs["validation"] = ValidationReport(len(out), duplicates, gaps, anomalies)
     return out
