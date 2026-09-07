@@ -40,7 +40,7 @@ class BrokerAdapter(ABC):
 
 
 class PaperBroker(BrokerAdapter):
-    """In-memory paper broker with idempotent client order IDs."""
+    """In-memory paper broker with idempotency and order-geometry validation."""
 
     def __init__(self, equity: float = 100_000.0) -> None:
         if equity <= 0:
@@ -59,9 +59,20 @@ class PaperBroker(BrokerAdapter):
     def price(self, symbol: str) -> MarketTick:
         raise RuntimeError(f"paper price feed not configured for {symbol}")
 
+    @staticmethod
+    def _validate_order(order: OrderRequest) -> None:
+        if order.units <= 0 or order.entry <= 0:
+            raise ValueError("units and entry must be positive")
+        side = order.side.value if hasattr(order.side, "value") else str(order.side).lower()
+        if side == "buy" and not (order.stop_loss < order.entry < order.take_profit):
+            raise ValueError("BUY order requires stop_loss < entry < take_profit")
+        if side == "sell" and not (order.take_profit < order.entry < order.stop_loss):
+            raise ValueError("SELL order requires take_profit < entry < stop_loss")
+        if side not in {"buy", "sell"}:
+            raise ValueError("order side must be buy or sell")
+
     def place(self, order: OrderRequest) -> str:
-        if order.units <= 0:
-            raise ValueError("units must be positive")
+        self._validate_order(order)
         if not order.client_order_id:
             self._seq += 1
             order_id = f"PAPER-{self._seq:08d}"
@@ -75,7 +86,7 @@ class PaperBroker(BrokerAdapter):
         self._orders[order_id] = order
         if not order.reduce_only:
             self._positions[order_id] = BrokerPosition(
-                order.symbol, order.side, order.units, order.entry, order.stop_loss, order.take_profit
+                order.symbol, str(order.side.value), order.units, order.entry, order.stop_loss, order.take_profit
             )
         return order_id
 
@@ -83,13 +94,15 @@ class PaperBroker(BrokerAdapter):
         if order_id not in self._positions:
             raise KeyError(order_id)
         position = self._positions[order_id]
+        new_sl = stop_loss if stop_loss is not None else position.stop_loss
+        new_tp = take_profit if take_profit is not None else position.take_profit
+        if new_sl is not None and new_tp is not None:
+            if position.side == "buy" and not new_sl < position.entry < new_tp:
+                raise ValueError("BUY position requires stop_loss < entry < take_profit")
+            if position.side == "sell" and not new_tp < position.entry < new_sl:
+                raise ValueError("SELL position requires take_profit < entry < stop_loss")
         self._positions[order_id] = BrokerPosition(
-            position.symbol,
-            position.side,
-            position.units,
-            position.entry,
-            stop_loss if stop_loss is not None else position.stop_loss,
-            take_profit if take_profit is not None else position.take_profit,
+            position.symbol, position.side, position.units, position.entry, new_sl, new_tp
         )
 
     def close(self, position_id: str) -> None:
