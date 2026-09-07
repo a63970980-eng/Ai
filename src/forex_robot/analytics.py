@@ -7,6 +7,8 @@ import numpy as np
 
 
 def analytics(returns: Sequence[float], periods_per_year: int = 252) -> dict[str, float]:
+    if periods_per_year <= 0:
+        raise ValueError("periods_per_year must be positive")
     if not returns:
         return {
             "trades": 0.0, "win_rate": 0.0, "profit_factor": 0.0,
@@ -16,13 +18,17 @@ def analytics(returns: Sequence[float], periods_per_year: int = 252) -> dict[str
             "max_loss_streak": 0.0,
         }
     x = np.asarray(returns, dtype=float)
+    if not np.isfinite(x).all():
+        raise ValueError("returns must contain only finite values")
+
     wins, losses = x[x > 0], x[x < 0]
     equity = np.cumsum(x)
     peak = np.maximum.accumulate(np.maximum(equity, 0.0))
     drawdowns = peak - equity
     mdd = float(drawdowns.max(initial=0.0))
     sd = float(x.std(ddof=1)) if len(x) > 1 else 0.0
-    downside = float(np.sqrt(np.mean(np.minimum(x, 0.0) ** 2)))
+    downside_values = np.minimum(x, 0.0)
+    downside = float(np.sqrt(np.mean(downside_values**2)))
     gross_loss = float(-losses.sum())
     pf = float(wins.sum() / gross_loss) if gross_loss else math.inf
 
