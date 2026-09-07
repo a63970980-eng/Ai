@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from dataclasses import replace
 
 from forex_robot.domain.models import Side, Signal
 from forex_robot.execution.broker import PaperBroker
@@ -31,7 +32,7 @@ def test_paper_broker_is_idempotent():
     assert broker.place(order) == "client-1"
     assert len(broker.positions()) == 1
     with pytest.raises(ValueError):
-        broker.place(order.model_copy(update={"units": 200}))
+        broker.place(replace(order, units=200))
 
 
 def test_pair_news_gate_matches_currency():
