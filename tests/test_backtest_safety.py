@@ -12,8 +12,8 @@ def frame(n=8):
 
 def signal(_history):
     return Signal(
-        symbol="EURUSD", side=Side.BUY, confidence=0.9, entry=1.0,
-        stop_loss=1.099, take_profit=1.102, reason="test", timestamp=pd.Timestamp.now(tz="UTC").to_pydatetime(),
+        symbol="EURUSD", side=Side.BUY, confidence=0.9, entry=1.1,
+        stop_loss=1.099, take_profit=1.2, reason="test", timestamp=pd.Timestamp.now(tz="UTC").to_pydatetime(),
     )
 
 
