@@ -6,11 +6,13 @@ from forex_robot.features.indicators import atr, ema, rsi
 
 
 def _signal(symbol: str, side: Side, price: float, a: float, reason: str, confidence: float) -> Signal:
+    if not pd.notna(a) or a <= 0:
+        return None  # type: ignore[return-value]
     risk = max(a * 1.2, price * 0.0005)
     if side is Side.BUY:
-        stop, target = price-risk, price+risk*1.6
+        stop, target = price - risk, price + risk * 1.6
     else:
-        stop, target = price+risk, price-risk*1.6
+        stop, target = price + risk, price - risk * 1.6
     return Signal(symbol=symbol, side=side, confidence=min(confidence, .99), entry=price,
                   stop_loss=stop, take_profit=target, reason=reason,
                   timestamp=pd.Timestamp.now(tz="UTC").to_pydatetime())
@@ -39,3 +41,31 @@ def breakout(symbol: str, df: pd.DataFrame) -> Signal | None:
     if price > hi: return _signal(symbol, Side.BUY, price, a, "20-bar upside breakout", .72)
     if price < lo: return _signal(symbol, Side.SELL, price, a, "20-bar downside breakout", .72)
     return None
+
+
+def trend(symbol: str, df: pd.DataFrame) -> Signal | None:
+    if len(df) < 210: return None
+    e50, e200 = ema(df.close, 50).iloc[-1], ema(df.close, 200).iloc[-1]
+    price, a = float(df.close.iloc[-1]), float(atr(df).iloc[-1])
+    if e50 > e200 and price > e50:
+        return _signal(symbol, Side.BUY, price, a, "EMA50/200 trend alignment", .74)
+    if e50 < e200 and price < e50:
+        return _signal(symbol, Side.SELL, price, a, "EMA50/200 trend alignment", .74)
+    return None
+
+
+def liquidity(symbol: str, df: pd.DataFrame) -> Signal | None:
+    if len(df) < 25: return None
+    price, a = float(df.close.iloc[-1]), float(atr(df).iloc[-1])
+    prior_high = float(df.high.iloc[-21:-1].max())
+    prior_low = float(df.low.iloc[-21:-1].min())
+    bar_high, bar_low = float(df.high.iloc[-1]), float(df.low.iloc[-1])
+    if bar_high > prior_high and price < prior_high:
+        return _signal(symbol, Side.SELL, price, a, "buy-side liquidity sweep and rejection", .73)
+    if bar_low < prior_low and price > prior_low:
+        return _signal(symbol, Side.BUY, price, a, "sell-side liquidity sweep and rejection", .73)
+    return None
+
+
+def scalping(symbol: str, df: pd.DataFrame) -> Signal | None:
+    return momentum(symbol, df)
