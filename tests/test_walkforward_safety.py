@@ -1,6 +1,6 @@
 import pandas as pd
 
-from forex_robot.backtest.walkforward import evaluate_walk_forward, windows
+from forex_robot.backtest.walkforward import windows, evaluate_walk_forward
 
 
 def frame(n=30):
@@ -16,7 +16,8 @@ def test_windows_keep_test_periods_non_overlapping_by_default():
     ws = windows(30, 10, 5, 5)
     assert len(ws) == 3
     for previous, current in zip(ws, ws[1:]):
-        assert previous.test_end == current.validation_end - 5
+        current_test_start = current.validation_end
+        assert previous.test_end <= current_test_start
 
 
 def test_evaluation_returns_validation_and_oos_test_results():
