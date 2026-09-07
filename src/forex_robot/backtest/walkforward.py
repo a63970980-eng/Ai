@@ -63,16 +63,15 @@ def evaluate_walk_forward(
 ) -> list[WalkForwardResult]:
     results: list[WalkForwardResult] = []
     for window in windows(len(df), train, validation, test, step):
-        kwargs = {
-            "spread": spread,
-            "slippage": slippage,
-            "fee": fee,
-            "risk_per_trade": risk_per_trade,
-            "execution_delay": execution_delay,
-        }
         validation_df = df.iloc[window.train_end:window.validation_end]
         test_df = df.iloc[window.validation_end:window.test_end]
-        validation_result = run_backtest(validation_df, signal_fn, **kwargs)
-        test_result = run_backtest(test_df, signal_fn, **kwargs)
+        validation_result = run_backtest(
+            validation_df, signal_fn, spread=spread, slippage=slippage, fee=fee,
+            risk_per_trade=risk_per_trade, execution_delay=execution_delay,
+        )
+        test_result = run_backtest(
+            test_df, signal_fn, spread=spread, slippage=slippage, fee=fee,
+            risk_per_trade=risk_per_trade, execution_delay=execution_delay,
+        )
         results.append(WalkForwardResult(window, validation_result, test_result))
     return results
