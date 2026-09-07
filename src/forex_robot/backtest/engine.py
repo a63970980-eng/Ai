@@ -19,6 +19,8 @@ class BacktestTrade:
     exit: float
     stop_loss: float
     take_profit: float
+    units: float
+    risk_amount: float
     pnl: float
     r_multiple: float
     exit_reason: str
@@ -39,6 +41,8 @@ class BacktestResult:
 
 
 def _validate_costs(spread: float, slippage: float, fee: float, risk_per_trade: float, execution_delay: int) -> None:
+    if not all(math.isfinite(v) for v in (spread, slippage, fee, risk_per_trade)):
+        raise ValueError("backtest costs and risk must be finite")
     if spread < 0 or slippage < 0 or fee < 0:
         raise ValueError("spread, slippage, and fee cannot be negative")
     if not 0 < risk_per_trade <= 1:
@@ -55,13 +59,19 @@ def run_backtest(
     fee: float = 0.0,
     risk_per_trade: float = 1.0,
     execution_delay: int = 0,
+    account_equity: float = 100_000.0,
 ) -> BacktestResult:
     _validate_costs(spread, slippage, fee, risk_per_trade, execution_delay)
+    if not math.isfinite(account_equity) or account_equity <= 0:
+        raise ValueError("account_equity must be finite and positive")
     if candles.empty or len(candles) < 2:
         return BacktestResult(0, 0, 0, 0.0, 0.0, 0.0, math.inf)
     missing = {"open", "high", "low", "close"} - set(candles.columns)
     if missing:
         raise ValueError(f"missing OHLC columns: {sorted(missing)}")
+    numeric = candles[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
+    if numeric.isna().any().any() or (numeric <= 0).any().any():
+        raise ValueError("OHLC data must be finite and positive")
 
     model = ExecutionModel(spread=spread, slippage=slippage, commission=fee, delay_bars=execution_delay)
     trades: list[BacktestTrade] = []
@@ -71,7 +81,6 @@ def run_backtest(
         if signal is None:
             i += 1
             continue
-
         entry_i = i + execution_delay + 1
         if entry_i >= len(candles):
             break
@@ -79,11 +88,17 @@ def run_backtest(
         entry = model.entry_price(entry_mid, signal.side.value)
         sl = float(signal.stop_loss)
         tp = float(signal.take_profit)
+        if not all(math.isfinite(v) and v > 0 for v in (entry, sl, tp)):
+            raise ValueError("signal prices must be finite and positive")
         if signal.side is Side.BUY and not sl < entry < tp:
             raise ValueError("BUY signal must satisfy stop_loss < entry < take_profit")
         if signal.side is Side.SELL and not tp < entry < sl:
             raise ValueError("SELL signal must satisfy take_profit < entry < stop_loss")
         risk_distance = abs(entry - sl)
+        risk_amount = account_equity * risk_per_trade
+        units = risk_amount / risk_distance
+        if not math.isfinite(units) or units <= 0:
+            raise ValueError("calculated backtest position size is invalid")
 
         j = entry_i
         exit_price = float(candles.close.iloc[-1])
@@ -108,12 +123,12 @@ def run_backtest(
             exit_price = float(bar.close)
             j += 1
 
-        raw = exit_price - entry if signal.side is Side.BUY else entry - exit_price
-        pnl_value = raw * risk_per_trade - abs(fee)
+        raw_per_unit = exit_price - entry if signal.side is Side.BUY else entry - exit_price
+        pnl_value = raw_per_unit * units - model.round_trip_cost(units)
         trades.append(
             BacktestTrade(
-                i, j, signal.side.value, entry, exit_price, sl, tp,
-                pnl_value, pnl_value / risk_distance, reason,
+                i, j, signal.side.value, entry, exit_price, sl, tp, units,
+                risk_amount, pnl_value, pnl_value / risk_amount, reason,
             )
         )
         i = max(j + 1, i + 1)
@@ -125,7 +140,6 @@ def run_backtest(
         equity += value
         peak = max(peak, equity)
         mdd = max(mdd, peak - equity)
-
     wins = sum(value > 0 for value in pnl_values)
     losses = sum(value < 0 for value in pnl_values)
     gross_wins = sum(value for value in pnl_values if value > 0)
