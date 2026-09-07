@@ -1,19 +1,30 @@
 services:
   api:
     build: .
-    ports: ["8000:8000"]
+    ports:
+      - "8000:8000"
     environment:
       LIVE_TRADING_ENABLED: "false"
       PAPER_TRADING_ENABLED: "true"
-      DATABASE_URL: postgresql://forex:forex@db:5432/forex
-    depends_on: [db]
+      DATABASE_URL: postgresql://${POSTGRES_USER:-forex}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-forex}
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: forex
-      POSTGRES_PASSWORD: forex
-      POSTGRES_DB: forex
-    ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data", "./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro"]
+      POSTGRES_USER: ${POSTGRES_USER:-forex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-forex}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 volumes:
   pgdata:
