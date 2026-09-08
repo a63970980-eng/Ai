@@ -3,32 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="AI Forex quantitative trading and risk terminal">
   <title>AI Forex Terminal</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <aside>
-    <h1>AI FOREX</h1><p>Quant Terminal</p>
-    <nav><a>Overview</a><a>Live Market</a><a>Signals</a><a>Positions</a><a>Risk</a><a>Backtesting</a><a>Journal</a></nav>
+    <div class="brand"><h1>AI FOREX</h1><p>Quant Terminal</p></div>
+    <nav aria-label="Terminal sections">
+      <a class="active" href="#overview">Overview</a><a href="#market">Live Market</a>
+      <a href="#signals">Signals</a><a href="#positions">Positions</a><a href="#risk-panel">Risk</a>
+      <a href="#backtest">Backtesting</a><a href="#journal">Journal</a>
+    </nav>
+    <div class="side-note"><span class="dot"></span><span>Paper execution only</span></div>
   </aside>
-  <main>
-    <header><div><span class="live"></span> PAPER MODE</div><div>Risk Engine: <b>ACTIVE</b></div></header>
-    <section class="grid">
+  <main id="overview">
+    <header>
+      <div><span class="live"></span><b id="mode">PAPER MODE</b><span class="muted"> • safety gate enforced</span></div>
+      <div>Risk Engine: <b class="ok">ACTIVE</b></div>
+    </header>
+
+    <section class="hero">
+      <div><small>AI FOREX TRADING PLATFORM</small><h2>Research → Signal → Risk → Execution</h2><p>Deterministic quant logic remains authoritative over AI reasoning and broker execution.</p></div>
+      <div class="badge" id="connection">CONNECTING</div>
+    </section>
+
+    <section class="grid metrics">
       <article><small>ACCOUNT EQUITY</small><strong id="equity">—</strong></article>
       <article><small>OPEN POSITIONS</small><strong id="positions">0</strong></article>
       <article><small>MAX RISK / TRADE</small><strong id="risk">—</strong></article>
       <article><small>LIVE TRADING</small><strong id="live">OFF</strong></article>
     </section>
-    <section class="panel"><h2>System status</h2><div id="status">Connecting to API…</div></section>
-    <section class="panel"><h2>Execution pipeline</h2><div class="pipeline">
+
+    <section class="panel" id="market"><div class="panel-head"><h2>System status</h2><span id="status-pill" class="pill">—</span></div><div id="status">Connecting to API…</div></section>
+
+    <section class="panel" id="signals"><div class="panel-head"><h2>Execution pipeline</h2><span class="pill">10 gates</span></div><div class="pipeline">
       <span>Market</span><i>→</i><span>Validation</span><i>→</i><span>15M Direction</span><i>→</i><span>5M Confirm</span><i>→</i><span>Liquidity</span><i>→</i><span>Structure</span><i>→</i><span>1M Entry</span><i>→</i><span>AI Score</span><i>→</i><span>Risk</span><i>→</i><span>Execution</span>
     </div></section>
-    <section class="grid">
-      <article><small>RISK CONTROL</small><strong>ACTIVE</strong></article>
-      <article><small>NEWS FILTER</small><strong>READY</strong></article>
-      <article><small>MTF ENGINE</small><strong>15M / 5M / 1M</strong></article>
-      <article><small>EXECUTION</small><strong>PAPER</strong></article>
+
+    <section class="grid" id="positions">
+      <article><small>RISK CONTROL</small><strong class="ok">ACTIVE</strong><p>Daily loss • drawdown • exposure • kill switch</p></article>
+      <article><small>NEWS FILTER</small><strong>READY</strong><p>Pair-aware high-impact blocking interface</p></article>
+      <article><small>MTF ENGINE</small><strong>15M / 5M / 1M</strong><p>Direction → confirmation → entry</p></article>
+      <article><small>EXECUTION</small><strong>PAPER</strong><p>Live broker boundary locked</p></article>
     </section>
+
+    <section class="panel" id="backtest"><div class="panel-head"><h2>Research controls</h2><span class="pill">API READY</span></div><div class="research-grid">
+      <div><b>Strategies</b><span>Scalping · Momentum · Trend · Breakout · Mean Reversion · Liquidity</span></div>
+      <div><b>Backtest</b><span>Next-bar execution · costs · risk sizing · partial exits · break-even · trailing</span></div>
+      <div><b>Robustness</b><span>Walk-forward · Monte Carlo · spread/slippage/volatility stress</span></div>
+    </div></section>
+
+    <section class="panel" id="risk-panel"><div class="panel-head"><h2>Production safety boundary</h2><span class="warning">LIVE OFF</span></div><p>Real broker credentials, live market feeds and live order routing are intentionally not enabled by default. Production activation requires broker certification, forward validation, reconciliation, monitoring and explicit operational approval.</p></section>
+    <section class="panel" id="journal"><div class="panel-head"><h2>Journal & analytics</h2><span class="pill">STORAGE STATUS</span></div><p id="journal-status">Journal persistence is not configured in this runtime.</p></section>
   </main>
   <script src="/app.js"></script>
 </body>
