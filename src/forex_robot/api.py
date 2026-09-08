@@ -10,16 +10,18 @@ from pydantic import BaseModel, Field
 
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
+from forex_robot.backtest.exits import BacktestExitConfig
 from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse, Signal
 from forex_robot.domain.trading import AccountState
 from forex_robot.execution.broker import PaperBroker
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
 from forex_robot.risk.manager import RiskManager
+from forex_robot.robustness.stress import stress_returns
 from forex_robot.scoring import score_signal
 from forex_robot.settings import settings
 from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion, momentum, scalping, trend
 
-app = FastAPI(title="AI Forex Trading Platform", version="1.3.0", docs_url="/docs")
+app = FastAPI(title="AI Forex Trading Platform", version="1.4.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
 started = datetime.now(timezone.utc)
@@ -59,6 +61,18 @@ class BacktestRequest(MarketRequest):
     fee: float = Field(default=0.0, ge=0)
     risk_per_trade: float = Field(default=1.0, gt=0, le=1)
     execution_delay: int = Field(default=0, ge=0)
+    account_equity: float = Field(default=100_000.0, gt=0)
+    take_profit_multiples: list[float] | None = None
+    partial_exit_fractions: list[float] | None = None
+    break_even_after_r: float | None = 1.0
+    trailing_atr_multiple: float | None = 1.5
+
+
+class StressRequest(BaseModel):
+    returns: list[float]
+    spread_factor: float = Field(default=1.5, gt=0)
+    slippage_factor: float = Field(default=1.5, gt=0)
+    volatility_factor: float = Field(default=1.0, gt=0)
 
 
 STRATEGIES = {
@@ -110,6 +124,7 @@ def get_settings():
         "daily_loss": settings.max_daily_loss,
         "drawdown": settings.max_drawdown,
         "max_open_positions": settings.max_open_positions,
+        "supported_strategies": list(STRATEGIES),
     }
 
 
@@ -142,14 +157,8 @@ def evaluate_risk(request: RiskGateRequest):
         max_slippage=settings.max_slippage_pips * 0.0001,
         min_signal_confidence=settings.min_signal_confidence,
     )
-    decision = evaluate_portfolio(
-        account_state,
-        request.signal,
-        request.spread,
-        limits=limits,
-        proposed_risk=request.proposed_risk,
-        slippage=request.slippage,
-    )
+    decision = evaluate_portfolio(account_state, request.signal, request.spread, limits=limits,
+                                  proposed_risk=request.proposed_risk, slippage=request.slippage)
     return {"allowed": decision.allowed, "reason": decision.reason}
 
 
@@ -200,6 +209,15 @@ def analytics_endpoint(returns: list[float]):
         raise HTTPException(422, str(exc)) from exc
 
 
+@app.post("/api/v1/stress")
+def stress(request: StressRequest):
+    try:
+        return stress_returns(request.returns, request.spread_factor, request.slippage_factor,
+                              request.volatility_factor).__dict__
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.post("/api/v1/backtest")
 def backtest(request: BacktestRequest):
     if len(request.candles) < 3:
@@ -210,14 +228,20 @@ def backtest(request: BacktestRequest):
     df = pd.DataFrame(request.candles)
     if not {"open", "high", "low", "close"}.issubset(df.columns):
         raise HTTPException(422, "OHLC columns required")
+    exit_config = None
+    if request.take_profit_multiples is not None or request.partial_exit_fractions is not None:
+        multiples = tuple(request.take_profit_multiples or (1.0, 1.5, 2.0, 3.0))
+        fractions = tuple(request.partial_exit_fractions or (0.25, 0.25, 0.25, 0.25))
+        try:
+            exit_config = BacktestExitConfig(multiples, fractions, request.break_even_after_r,
+                                             request.trailing_atr_multiple)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     result = run_backtest(
-        df,
-        lambda history: strategy_fn(request.symbol, history),
-        spread=request.spread,
-        slippage=request.slippage,
-        fee=request.fee,
-        risk_per_trade=request.risk_per_trade,
-        execution_delay=request.execution_delay,
+        df, lambda history: strategy_fn(request.symbol, history), spread=request.spread,
+        slippage=request.slippage, fee=request.fee, risk_per_trade=request.risk_per_trade,
+        execution_delay=request.execution_delay, account_equity=request.account_equity,
+        exit_config=exit_config,
     )
     return result.__dict__
 
