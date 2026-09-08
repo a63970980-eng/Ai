@@ -30,3 +30,6 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.vercel]
+entrypoint = "src.forex_robot.api:app"
