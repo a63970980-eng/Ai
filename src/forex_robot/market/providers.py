@@ -5,7 +5,7 @@ import os
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pandas as pd
 
