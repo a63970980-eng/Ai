@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -13,8 +13,9 @@ from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
 from forex_robot.backtest.exits import BacktestExitConfig
 from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse, Signal
-from forex_robot.domain.trading import AccountState
+from forex_robot.domain.trading import AccountState, OrderRequest
 from forex_robot.execution.broker import PaperBroker
+from forex_robot.market.providers import build_market_feed
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
 from forex_robot.regime.detector import Regime, detect_regime
 from forex_robot.risk.manager import RiskManager
@@ -23,10 +24,11 @@ from forex_robot.scoring import score_signal
 from forex_robot.settings import settings
 from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion, momentum, scalping, trend
 
-app = FastAPI(title="AI Forex Trading Platform", version="1.5.0", docs_url="/docs")
+app = FastAPI(title="AI Forex Trading Platform", version="1.6.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
 ai_engine, ai_provider = build_ai_engine()
+market_feed = build_market_feed()
 started = datetime.now(timezone.utc)
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
@@ -56,6 +58,19 @@ class RiskGateRequest(BaseModel):
     day_start_equity: float = Field(default=100_000.0, gt=0)
     peak_equity: float = Field(default=100_000.0, gt=0)
     open_positions: int = Field(default=0, ge=0)
+    consecutive_losses: int = Field(default=0, ge=0)
+    portfolio_risk: float = Field(default=0.0, ge=0)
+    kill_switch: bool = False
+    currency_exposure: dict[str, float] = Field(default_factory=dict)
+
+
+class PaperExecuteRequest(BaseModel):
+    signal: Signal
+    spread: float = Field(ge=0)
+    proposed_risk: float = Field(default=0.0, ge=0)
+    equity: float = Field(default=100_000.0, gt=0)
+    day_start_equity: float = Field(default=100_000.0, gt=0)
+    peak_equity: float = Field(default=100_000.0, gt=0)
     consecutive_losses: int = Field(default=0, ge=0)
     portfolio_risk: float = Field(default=0.0, ge=0)
     kill_switch: bool = False
@@ -119,6 +134,7 @@ def health():
         "live_trading": settings.live_trading_enabled,
         "paper_trading": settings.paper_trading_enabled,
         "ai_provider": ai_provider,
+        "market_feed": "oanda" if market_feed else "not_configured",
         "uptime_since": started.isoformat(),
     }
 
@@ -135,6 +151,7 @@ def get_settings():
         "max_open_positions": settings.max_open_positions,
         "supported_strategies": list(STRATEGIES),
         "ai_provider": ai_provider,
+        "market_feed": "oanda" if market_feed else "not_configured",
     }
 
 
@@ -147,13 +164,12 @@ def position_size(request: PositionSizeRequest):
         raise HTTPException(422, str(exc)) from exc
 
 
-@app.post("/api/v1/risk/evaluate")
-def evaluate_risk(request: RiskGateRequest):
+def _risk_decision(request: RiskGateRequest | PaperExecuteRequest):
     account_state = AccountState(
         equity=request.equity,
         day_start_equity=request.day_start_equity,
         peak_equity=request.peak_equity,
-        open_positions=request.open_positions,
+        open_positions=len(paper_broker.positions()),
         consecutive_losses=request.consecutive_losses,
         portfolio_risk=request.portfolio_risk,
         kill_switch=request.kill_switch,
@@ -167,8 +183,15 @@ def evaluate_risk(request: RiskGateRequest):
         max_slippage=settings.max_slippage_pips * 0.0001,
         min_signal_confidence=settings.min_signal_confidence,
     )
-    decision = evaluate_portfolio(account_state, request.signal, request.spread, limits=limits,
-                                  proposed_risk=request.proposed_risk, slippage=request.slippage)
+    return evaluate_portfolio(
+        account_state, request.signal, request.spread, limits=limits,
+        proposed_risk=request.proposed_risk, slippage=0.0,
+    )
+
+
+@app.post("/api/v1/risk/evaluate")
+def evaluate_risk(request: RiskGateRequest):
+    decision = _risk_decision(request)
     return {"allowed": decision.allowed, "reason": decision.reason}
 
 
@@ -196,7 +219,85 @@ def ai_score(request: AIScoreRequest):
 
 @app.get("/api/v1/signals")
 def signals():
-    return {"signals": [], "source": "no_market_feed_configured", "ai_provider": ai_provider}
+    return {"signals": [], "source": "use /api/v1/signals/live when market feed is configured", "ai_provider": ai_provider}
+
+
+@app.get("/api/v1/signals/live")
+def live_signal(
+    symbol: str = Query(default="EUR_USD", min_length=6, max_length=12),
+    strategy: str = Query(default="momentum"),
+    granularity: str = Query(default="M1", pattern=r"^(M1|M5|M15|H1)$"),
+    count: int = Query(default=250, ge=30, le=5000),
+):
+    if market_feed is None:
+        raise HTTPException(503, "market feed is not configured; set OANDA_API_KEY")
+    strategy_fn = STRATEGIES.get(strategy)
+    if strategy_fn is None:
+        raise HTTPException(422, f"unsupported strategy; available: {', '.join(STRATEGIES)}")
+    try:
+        feed = market_feed.candles(symbol, granularity, count)
+    except Exception as exc:
+        raise HTTPException(502, "market data provider unavailable") from exc
+    if len(feed.candles) < 30:
+        return {"status": "no_signal", "reason": "insufficient_complete_candles", "candles": len(feed.candles)}
+    candidate = strategy_fn(symbol, feed.candles)
+    regime = detect_regime(feed.candles) if len(feed.candles) >= 60 else Regime.UNKNOWN
+    if candidate is None:
+        return {"status": "no_signal", "symbol": symbol, "strategy": strategy, "regime": regime.value, "candles": len(feed.candles)}
+    try:
+        ai = ai_engine.score(candidate, regime)
+    except Exception as exc:
+        raise HTTPException(503, "AI provider unavailable; no trade decision was made") from exc
+    risk_request = RiskGateRequest(
+        signal=ai.signal or candidate,
+        spread=0.0,
+        proposed_risk=settings.max_risk_per_trade,
+        equity=paper_broker.account()["equity"],
+        day_start_equity=paper_broker.account()["equity"],
+        peak_equity=paper_broker.account()["equity"],
+    )
+    decision = _risk_decision(risk_request)
+    return {
+        "status": "valid" if decision.allowed and ai.model_score >= settings.min_signal_confidence else "blocked",
+        "symbol": symbol,
+        "strategy": strategy,
+        "provider": feed.provider,
+        "granularity": granularity,
+        "candles": len(feed.candles),
+        "regime": regime.value,
+        "signal": ai.signal.model_dump(mode="json") if ai.signal else None,
+        "ai_score": ai.model_score,
+        "ai_explanation": ai.explanation,
+        "risk_allowed": decision.allowed,
+        "risk_reason": decision.reason,
+        "execution_mode": "paper_only",
+        "live_trading_enabled": settings.live_trading_enabled,
+    }
+
+
+@app.post("/api/v1/paper/execute")
+def paper_execute(request: PaperExecuteRequest):
+    if not settings.paper_trading_enabled:
+        raise HTTPException(403, "paper trading is disabled")
+    if settings.live_trading_enabled:
+        raise HTTPException(403, "live mode cannot be used through the paper endpoint")
+    decision = _risk_decision(request)
+    if not decision.allowed:
+        return {"executed": False, "reason": decision.reason, "mode": "paper"}
+    order = OrderRequest(
+        symbol=request.signal.symbol,
+        side=request.signal.side.value if hasattr(request.signal.side, "value") else str(request.signal.side),
+        units=1.0,
+        entry=request.signal.entry,
+        stop_loss=request.signal.stop_loss,
+        take_profit=request.signal.take_profit,
+        client_order_id=f"PAPER-{request.signal.symbol}-{int(request.signal.timestamp.timestamp())}",
+    )
+    try:
+        order_id = paper_broker.place(order)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"executed": True, "mode": "paper", "order_id": order_id, "signal": request.signal.model_dump(mode="json")}
 
 
 @app.post("/api/v1/market")
@@ -240,8 +341,7 @@ def analytics_endpoint(returns: list[float]):
 @app.post("/api/v1/stress")
 def stress(request: StressRequest):
     try:
-        return stress_returns(request.returns, request.spread_factor, request.slippage_factor,
-                              request.volatility_factor).__dict__
+        return stress_returns(request.returns, request.spread_factor, request.slippage_factor, request.volatility_factor).__dict__
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -261,8 +361,7 @@ def backtest(request: BacktestRequest):
         multiples = tuple(request.take_profit_multiples or (1.0, 1.5, 2.0, 3.0))
         fractions = tuple(request.partial_exit_fractions or (0.25, 0.25, 0.25, 0.25))
         try:
-            exit_config = BacktestExitConfig(multiples, fractions, request.break_even_after_r,
-                                             request.trailing_atr_multiple)
+            exit_config = BacktestExitConfig(multiples, fractions, request.break_even_after_r, request.trailing_atr_multiple)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
     result = run_backtest(
