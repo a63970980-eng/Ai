@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from forex_robot.ai.providers import build_ai_engine
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
 from forex_robot.backtest.exits import BacktestExitConfig
@@ -15,15 +16,17 @@ from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse,
 from forex_robot.domain.trading import AccountState
 from forex_robot.execution.broker import PaperBroker
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
+from forex_robot.regime.detector import Regime, detect_regime
 from forex_robot.risk.manager import RiskManager
 from forex_robot.robustness.stress import stress_returns
 from forex_robot.scoring import score_signal
 from forex_robot.settings import settings
 from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion, momentum, scalping, trend
 
-app = FastAPI(title="AI Forex Trading Platform", version="1.4.0", docs_url="/docs")
+app = FastAPI(title="AI Forex Trading Platform", version="1.5.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
+ai_engine, ai_provider = build_ai_engine()
 started = datetime.now(timezone.utc)
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
@@ -37,6 +40,11 @@ class ScoreRequest(BaseModel):
 class MarketRequest(BaseModel):
     symbol: str
     candles: list[dict] = Field(default_factory=list)
+
+
+class AIScoreRequest(BaseModel):
+    signal: Signal
+    regime: Regime = Regime.UNKNOWN
 
 
 class RiskGateRequest(BaseModel):
@@ -110,6 +118,7 @@ def health():
         "environment": settings.environment,
         "live_trading": settings.live_trading_enabled,
         "paper_trading": settings.paper_trading_enabled,
+        "ai_provider": ai_provider,
         "uptime_since": started.isoformat(),
     }
 
@@ -125,6 +134,7 @@ def get_settings():
         "drawdown": settings.max_drawdown,
         "max_open_positions": settings.max_open_positions,
         "supported_strategies": list(STRATEGIES),
+        "ai_provider": ai_provider,
     }
 
 
@@ -167,9 +177,26 @@ def signal_score(request: ScoreRequest):
     return score_signal(request.components, request.weights).__dict__
 
 
+@app.post("/api/v1/ai/score")
+def ai_score(request: AIScoreRequest):
+    try:
+        result = ai_engine.score(request.signal, request.regime)
+        return {
+            "score": result.model_score,
+            "confidence": result.signal.confidence if result.signal else 0.0,
+            "regime": result.regime.value,
+            "explanation": result.explanation,
+            "model": result.model_name if result.model_name else ai_provider,
+            "provider": ai_provider,
+            "risk_authority": "risk_engine",
+        }
+    except Exception as exc:
+        raise HTTPException(503, "AI provider unavailable; no trade decision was made") from exc
+
+
 @app.get("/api/v1/signals")
 def signals():
-    return {"signals": [], "source": "no_market_feed_configured"}
+    return {"signals": [], "source": "no_market_feed_configured", "ai_provider": ai_provider}
 
 
 @app.post("/api/v1/market")
@@ -177,7 +204,8 @@ def market(request: MarketRequest):
     if not request.candles:
         return {"symbol": request.symbol, "candles": 0}
     df = pd.DataFrame(request.candles)
-    return {"symbol": request.symbol, "candles": len(df), "last": df.iloc[-1].to_dict()}
+    regime = detect_regime(df) if len(df) >= 60 and {"open", "high", "low", "close"}.issubset(df.columns) else Regime.UNKNOWN
+    return {"symbol": request.symbol, "candles": len(df), "regime": regime.value, "last": df.iloc[-1].to_dict()}
 
 
 @app.get("/api/v1/account")
