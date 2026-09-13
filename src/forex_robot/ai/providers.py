@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
+import re
 import urllib.request
 from dataclasses import dataclass
+from typing import Any
 
 from forex_robot.ai.engine import AIEngine
 from forex_robot.domain.models import Signal
@@ -19,18 +20,71 @@ class AIProviderResult:
     model: str
 
 
-def _post_json(url: str, payload: dict, headers: dict[str, str], timeout: float = 12.0) -> dict:
+def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float = 12.0) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", **headers}, method="POST")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", **headers},
+        method="POST",
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        decoded = json.loads(response.read().decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("AI provider returned a non-object JSON response")
+    return decoded
 
 
 def _bounded(value: object, default: float) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return default
+    if isinstance(value, (int, float)):
+        return max(0.0, min(1.0, float(value)))
+    if isinstance(value, str):
+        try:
+            return max(0.0, min(1.0, float(value.strip())))
+        except ValueError:
+            return default
+    return default
+
+
+def _parse_model_json(content: object) -> dict[str, Any]:
+    if not isinstance(content, str):
+        raise ValueError("AI provider returned non-text model content")
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("AI provider did not return valid JSON") from None
+        parsed = json.loads(text[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("AI provider JSON result is not an object")
+    return parsed
+
+
+def _extract_content(data: dict[str, Any], provider: str) -> str:
+    try:
+        if provider == "openrouter":
+            choices = data["choices"]
+            if not isinstance(choices, list) or not choices:
+                raise ValueError("missing model choices")
+            message = choices[0]["message"]
+            content = message["content"]
+        else:
+            candidates = data["candidates"]
+            if not isinstance(candidates, list) or not candidates:
+                raise ValueError("missing model candidates")
+            content = candidates[0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(f"malformed {provider} response") from exc
+    if not isinstance(content, str):
+        raise ValueError(f"malformed {provider} text response")
+    return content
 
 
 class OpenRouterPredictor:
@@ -54,9 +108,12 @@ class OpenRouterPredictor:
                 {"role": "user", "content": prompt},
             ],
         }
-        data = _post_json("https://openrouter.ai/api/v1/chat/completions", payload, {"Authorization": f"Bearer {self.api_key}"})
-        content = data["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
+        data = _post_json(
+            "https://openrouter.ai/api/v1/chat/completions",
+            payload,
+            {"Authorization": f"Bearer {self.api_key}"},
+        )
+        parsed = _parse_model_json(_extract_content(data, "openrouter"))
         return _bounded(parsed.get("score"), signal.confidence)
 
 
@@ -74,8 +131,7 @@ class GeminiPredictor:
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         data = _post_json(url, payload, {})
-        content = data["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = json.loads(content)
+        parsed = _parse_model_json(_extract_content(data, "gemini"))
         return _bounded(parsed.get("score"), signal.confidence)
 
 
