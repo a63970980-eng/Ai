@@ -33,7 +33,7 @@ from forex_robot.scoring import score_signal
 from forex_robot.settings import settings
 from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion, momentum, scalping, trend
 
-app = FastAPI(title="AI Forex Trading Platform", version="1.6.0", docs_url="/docs")
+app = FastAPI(title="AI Crypto Quant Trading Platform", version="1.6.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
 journal = Journal()
@@ -134,7 +134,7 @@ STRATEGIES = {
 @app.get("/")
 def dashboard():
     p = FRONTEND / "index.html"
-    return FileResponse(p) if p.exists() else {"service": "AI Forex Trading Platform", "docs": "/docs"}
+    return FileResponse(p) if p.exists() else {"service": "AI Crypto Quant Trading Platform", "docs": "/docs"}
 
 
 @app.get("/styles.css")
@@ -174,7 +174,7 @@ def get_settings():
         "max_open_positions": settings.max_open_positions,
         "supported_strategies": list(STRATEGIES),
         "ai_provider": ai_provider,
-        "market_feed": "oanda" if market_feed else "not_configured",
+        "market_feed": "binance" if market_feed else "not_configured",
     }
 
 
@@ -247,13 +247,13 @@ def signals():
 
 @app.get("/api/v1/signals/live")
 def live_signal(
-    symbol: str = Query(default="EUR_USD", min_length=6, max_length=12),
+    symbol: str = Query(default="BTCUSDT", min_length=5, max_length=20),
     strategy: str = Query(default="momentum"),
-    granularity: str = Query(default="M1", pattern=r"^(M1|M5|M15|H1)$"),
-    count: int = Query(default=250, ge=30, le=5000),
+    granularity: str = Query(default="15m", pattern=r"^(1m|3m|5m|15m|30m|1h|2h|4h|1d)$"),
+    count: int = Query(default=500, ge=30, le=1000),
 ):
     if market_feed is None:
-        raise HTTPException(503, "market feed is not configured; set OANDA_API_KEY")
+        raise HTTPException(503, "market feed unavailable")
     strategy_fn = STRATEGIES.get(strategy)
     if strategy_fn is None:
         raise HTTPException(422, f"unsupported strategy; available: {', '.join(STRATEGIES)}")
@@ -570,7 +570,7 @@ def risk():
         "max_daily_loss": settings.max_daily_loss,
         "max_drawdown": settings.max_drawdown,
         "max_open_positions": settings.max_open_positions,
-        "max_spread_pips": settings.max_spread_pips,
-        "max_slippage_pips": settings.max_slippage_pips,
+        "max_spread_fraction": settings.max_spread_fraction,
+        "max_slippage_fraction": settings.max_slippage_fraction,
         "min_signal_confidence": settings.min_signal_confidence,
     }
