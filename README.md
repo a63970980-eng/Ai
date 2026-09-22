@@ -30,7 +30,7 @@ A safety-first quantitative Forex research and paper-trading platform. Determini
 - Monte Carlo robustness plus deterministic spread/slippage/volatility stress testing
 - Market-feed corruption checks for missing OHLC, invalid values and duplicate timestamps
 - Execution reconciliation and connection-health boundaries
-- FastAPI `/api/v1/*` surface for health, settings, scoring, risk, backtesting, analytics and stress analysis
+- FastAPI `/api/v1/*` surface for health, settings, diagnostics, deterministic pipeline evaluation, scoring, risk, backtesting, analytics and stress analysis
 - Responsive dark quantitative terminal dashboard
 - PostgreSQL schema covering accounts, instruments, market data, signals, orders, positions, trades, strategies, risk, news, backtests, predictions and audit events
 - Docker Compose with PostgreSQL and a container healthcheck
@@ -63,6 +63,10 @@ The API listens on port `8000`; the terminal is served from `/`.
 ## AI providers
 
 `OPENROUTER_API_KEY` and `GEMINI_API_KEY` are supported as deployment secrets for future/provider-specific AI reasoning. They are intentionally absent from source control and do not authorize live trading by themselves.
+
+## Deployment
+
+Vercel is configured with a root `api.py` FastAPI entrypoint and explicit `vercel.json` Python runtime configuration. This avoids the previous source-tree entrypoint detection failure while preserving the same `src/forex_robot` package layout.
 
 ## Release gate
 
