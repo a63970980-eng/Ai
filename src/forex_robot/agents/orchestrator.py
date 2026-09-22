@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from forex_robot.ai.council import CouncilResult
+
 
 @dataclass(frozen=True)
 class AgentResult:
@@ -19,11 +21,7 @@ class AgentDecision:
 
 
 class TradingAgentOrchestrator:
-    """Deterministic three-agent boundary.
-
-    Agents may analyse and propose. The risk engine remains authoritative and
-    this orchestrator never submits broker orders.
-    """
+    """Three-agent chain with a hard deterministic risk boundary."""
 
     def __init__(
         self,
@@ -35,10 +33,54 @@ class TradingAgentOrchestrator:
         self.planner = planner
         self.risk_monitor = risk_monitor
 
+    @classmethod
+    def from_council(cls, council: CouncilResult) -> "TradingAgentOrchestrator":
+        def analyst(ctx: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "stance": council.stance,
+                "score": council.consensus_score,
+                "agreement": council.agreement,
+                "conflicts": council.conflicts,
+                "models": council.successful_models,
+            }
+
+        def planner(ctx: dict[str, Any]) -> dict[str, Any]:
+            analysis = ctx["analysis"]
+            return {
+                "action": "paper_only" if analysis["stance"] != "WAIT" else "wait",
+                "stance": analysis["stance"],
+                "confidence": analysis["score"] * analysis["agreement"],
+                "execution": "disabled" if analysis["stance"] == "WAIT" else "paper",
+            }
+
+        def risk_monitor(ctx: dict[str, Any]) -> dict[str, Any]:
+            analysis = ctx["analysis"]
+            plan = ctx["execution_plan"]
+            blocked = bool(ctx.get("risk_blocked", False))
+            return {
+                "allowed": not blocked and plan["action"] != "wait" and not analysis["conflicts"],
+                "reason": (
+                    "deterministic risk engine required" if blocked
+                    else "council conflict or WAIT"
+                    if plan["action"] == "wait" or analysis["conflicts"]
+                    else "await deterministic risk gate"
+                ),
+            }
+
+        return cls(analyst, planner, risk_monitor)
+
     def evaluate(self, context: dict[str, Any]) -> AgentDecision:
         analysis = AgentResult("market_analyst", "ok", self.analyst(context))
-        plan_context = {**context, "analysis": analysis.payload}
-        plan = AgentResult("execution_planner", "ok", self.planner(plan_context))
-        risk_context = {**plan_context, "execution_plan": plan.payload}
-        risk = AgentResult("risk_monitor", "ok", self.risk_monitor(risk_context))
+        plan = AgentResult(
+            "execution_planner", "ok",
+            self.planner({**context, "analysis": analysis.payload}),
+        )
+        risk = AgentResult(
+            "risk_monitor", "ok",
+            self.risk_monitor({
+                **context,
+                "analysis": analysis.payload,
+                "execution_plan": plan.payload,
+            }),
+        )
         return AgentDecision(analysis, plan, risk)
