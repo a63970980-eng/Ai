@@ -30,7 +30,7 @@ class ModelRegistry:
     def __init__(self, profiles: Iterable[ModelProfile] = DEFAULT_PROFILES) -> None:
         self._profiles = {(p.provider, p.model): p for p in profiles}
 
-    def list(self) -> list[ModelProfile]:
+    def profiles(self) -> list[ModelProfile]:
         return list(self._profiles.values())
 
     def weight(self, provider: str, model: str, observed_accuracy: float | None = None) -> float:
