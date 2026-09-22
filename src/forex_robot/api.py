@@ -19,6 +19,8 @@ from forex_robot.market.providers import build_market_feed
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
 from forex_robot.pipeline import evaluate_pipeline
 from forex_robot.regime.detector import Regime, detect_regime
+from forex_robot.research.validation import monte_carlo_bootstrap, walk_forward_windows
+from forex_robot.observability import metrics
 from forex_robot.risk.manager import RiskManager
 from forex_robot.robustness.stress import stress_returns
 from forex_robot.scoring import score_signal
@@ -90,6 +92,19 @@ class BacktestRequest(MarketRequest):
     partial_exit_fractions: list[float] | None = None
     break_even_after_r: float | None = 1.0
     trailing_atr_multiple: float | None = 1.5
+
+
+class ResearchValidationRequest(BaseModel):
+    returns: list[float]
+    simulations: int = Field(default=2000, ge=100, le=100000)
+    seed: int = Field(default=42)
+
+
+class WalkForwardRequest(BaseModel):
+    length: int = Field(gt=0)
+    train_size: int = Field(gt=0)
+    test_size: int = Field(gt=0)
+    step: int | None = Field(default=None, gt=0)
 
 
 class StressRequest(BaseModel):
@@ -383,6 +398,28 @@ def analytics_endpoint(returns: list[float]):
         return analytics(returns)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/v1/research/monte-carlo")
+def research_monte_carlo(request: ResearchValidationRequest):
+    try:
+        return monte_carlo_bootstrap(request.returns, request.simulations, request.seed).__dict__
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/api/v1/research/walk-forward")
+def research_walk_forward(request: WalkForwardRequest):
+    try:
+        windows = walk_forward_windows(request.length, request.train_size, request.test_size, request.step)
+        return {"windows": [w.__dict__ for w in windows], "count": len(windows)}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/api/v1/observability")
+def observability():
+    return metrics.snapshot().__dict__
 
 
 @app.post("/api/v1/stress")
