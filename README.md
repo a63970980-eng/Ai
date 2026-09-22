@@ -33,6 +33,9 @@ A safety-first quantitative Forex research and paper-trading platform. Determini
 - FastAPI `/api/v1/*` surface for health, settings, diagnostics, deterministic pipeline evaluation, scoring, risk, backtesting, analytics and stress analysis
 - Multi-model AI Council: OpenAI, Gemini, OpenRouter-hosted open models and local OpenAI-compatible models can participate concurrently
 - Two-pass model review: independent analysis followed by peer-aware critique and weighted consensus
+- AI model registry with role metadata and bounded adaptive weighting
+- Optional LiteLLM gateway and LangGraph orchestration integrations (`.[ai]`); kept optional so the core/Vercel runtime remains lightweight
+- Local-model serving can use OpenAI-compatible servers such as vLLM; the council consumes the same interface
 - Responsive dark quantitative terminal dashboard
 - PostgreSQL schema covering accounts, instruments, market data, signals, orders, positions, trades, strategies, risk, news, backtests, predictions and audit events
 - Docker Compose with PostgreSQL and a container healthcheck
