@@ -73,7 +73,7 @@ def _post(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: f
 
 def _prompt(signal: Signal, regime: Regime, peer_context: str = "") -> str:
     return (
-        "You are one member of a forex research council. Analyze ONLY the supplied "
+        "You are one member of a crypto quantitative research council. Analyze ONLY the supplied "
         "candidate signal. Do not invent prices, news, indicators, or market data. "
         "Do not place orders and never override deterministic risk controls. "
         "Return ONLY JSON with keys: score (0..1), confidence (0..1), stance "
