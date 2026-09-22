@@ -39,11 +39,12 @@ class OandaMarketData(_HttpMarketData):
         host = "api-fxpractice.oanda.com" if environment.lower() != "live" else "api-fxtrade.oanda.com"
         self.base_url = f"https://{host}"
 
-    def _request_json(self, url: str) -> dict:
-        return super()._request_json(
-            url,
-            headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
-        )
+    def _request_json(self, url: str, headers: dict[str, str] | None = None) -> dict:
+        auth_headers = {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"}
+        if headers:
+            auth_headers.update(headers)
+        return super()._request_json(url, headers=auth_headers)
+
     def candles(self, symbol: str, granularity: str = "M1", count: int = 250) -> CandleFeed:
         if count < 30 or count > 5000:
             raise ValueError("count must be between 30 and 5000")
@@ -144,7 +145,6 @@ class TwelveDataMarketData(_HttpMarketData):
 
 
 def build_market_feed() -> TwelveDataMarketData | OandaMarketData | None:
-    # Prefer Twelve Data when configured: it is independent of broker account availability.
     twelve_key = os.getenv("TWELVE_DATA_API_KEY", "").strip()
     if twelve_key:
         return TwelveDataMarketData(twelve_key)
