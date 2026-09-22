@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from forex_robot.ai.providers import build_ai_engine
 from forex_robot.ai.council import run_council
+from forex_robot.ai.registry import ModelRegistry
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
 from forex_robot.backtest.exits import BacktestExitConfig
@@ -421,6 +422,17 @@ def research_walk_forward(request: WalkForwardRequest):
 @app.get("/api/v1/observability")
 def observability():
     return metrics.snapshot().__dict__
+
+
+@app.get("/api/v1/ai/models")
+def ai_models():
+    registry = ModelRegistry()
+    return {
+        "models": [profile.__dict__ for profile in registry.list()],
+        "configured_from_environment": bool(__import__("os").getenv("AI_COUNCIL_MODELS")),
+        "execution": "disabled",
+        "risk_authority": "risk_engine",
+    }
 
 
 @app.post("/api/v1/ai/council")
