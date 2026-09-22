@@ -1,6 +1,6 @@
-# AI Forex Scalping & Quantitative Trading Platform
+# AI Crypto Quantitative Trading Robot
 
-A safety-first quantitative Forex research and paper-trading platform. Deterministic market, strategy and risk controls remain authoritative over AI reasoning and broker execution.
+A safety-first quantitative Crypto research and paper-trading platform. Deterministic market, strategy and risk controls remain authoritative over AI reasoning and broker execution.
 
 ## Safety contract
 
@@ -11,7 +11,7 @@ A safety-first quantitative Forex research and paper-trading platform. Determini
 - Risk controls have final authority over model output.
 - Credentials belong in Vercel/secret-manager environment variables, never Git.
 - No fabricated live prices, fills, performance or profitability claims.
-- MT5/OANDA/cTrader adapters are explicit boundaries until broker-specific certification is completed.
+- MT5/Binance/cTrader adapters are explicit boundaries until broker-specific certification is completed.
 
 ## Implemented platform
 
@@ -49,7 +49,7 @@ A safety-first quantitative Forex research and paper-trading platform. Determini
 
 ```bash
 python -m pip install -e '.[dev]'
-uvicorn forex_robot.api:app --reload
+uvicorn crypto_robot.api:app --reload
 pytest -q
 ruff check . --select E9,F63,F7,F82
 mypy src
@@ -71,7 +71,7 @@ The API listens on port `8000`; the terminal is served from `/`.
 
 ## Deployment
 
-Vercel is configured with a root `api.py` FastAPI entrypoint and explicit `vercel.json` Python runtime configuration. This avoids the previous source-tree entrypoint detection failure while preserving the same `src/forex_robot` package layout.
+Vercel is configured with a root `api.py` FastAPI entrypoint and explicit `vercel.json` Python runtime configuration. This avoids the previous source-tree entrypoint detection failure while preserving the same `src/crypto_robot` package layout.
 
 ## Release gate
 
