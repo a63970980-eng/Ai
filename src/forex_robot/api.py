@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
@@ -11,6 +12,8 @@ from pydantic import BaseModel, Field
 from forex_robot.ai.providers import build_ai_engine
 from forex_robot.ai.council import run_council
 from forex_robot.ai.registry import ModelRegistry
+from forex_robot.ai.ledger import ledger
+from forex_robot.agents.orchestrator import TradingAgentOrchestrator
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
 from forex_robot.backtest.exits import BacktestExitConfig
@@ -443,7 +446,10 @@ def ai_council(request: AIScoreRequest):
     authoritative outside the model council.
     """
     result = run_council(request.signal, request.regime)
+    evaluation_id = uuid4().hex
+    ledger.record(evaluation_id, request.signal, result.opinions)
     return {
+        "evaluation_id": evaluation_id,
         "consensus_score": result.consensus_score,
         "agreement": result.agreement,
         "stance": result.stance,
@@ -453,6 +459,50 @@ def ai_council(request: AIScoreRequest):
         "opinions": [op.__dict__ for op in result.opinions],
         "risk_authority": "risk_engine",
         "execution": "disabled",
+    }
+
+
+@app.get("/api/v1/ai/performance")
+def ai_performance():
+    """Return observed model performance from settled council evaluations."""
+    return {"models": ledger.performance()}
+
+
+class AIOutcomeRequest(BaseModel):
+    evaluation_id: str = Field(min_length=8, max_length=128)
+    outcome: float = Field(ge=-1, le=1)
+
+
+@app.post("/api/v1/ai/outcomes/settle")
+def settle_ai_outcome(request: AIOutcomeRequest):
+    try:
+        updated = ledger.settle(request.evaluation_id, request.outcome)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if updated == 0:
+        raise HTTPException(404, "evaluation not found or already settled")
+    return {"evaluation_id": request.evaluation_id, "settled_rows": updated}
+
+
+@app.get("/api/v1/ai/evaluations/{evaluation_id}")
+def ai_evaluation(evaluation_id: str):
+    rows = ledger.get(evaluation_id)
+    if not rows:
+        raise HTTPException(404, "evaluation not found")
+    return {"evaluation_id": evaluation_id, "opinions": rows}
+
+
+@app.post("/api/v1/ai/agents")
+def ai_agents(request: AIScoreRequest):
+    """Run analyst -> planner -> risk monitor without broker execution."""
+    council = run_council(request.signal, request.regime)
+    decision = TradingAgentOrchestrator.from_council(council).evaluate({})
+    return {
+        "analysis": decision.analysis.payload,
+        "execution_plan": decision.execution_plan.payload,
+        "risk": decision.risk.payload,
+        "execution": "disabled",
+        "risk_authority": "risk_engine",
     }
 
 
