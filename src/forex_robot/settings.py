@@ -18,6 +18,9 @@ class Settings:
     max_spread_fraction: float = 0.0015
     max_slippage_fraction: float = 0.001
     min_signal_confidence: float = 0.65
+    # Legacy fields retained so older API routes do not crash during migration.
+    max_spread_pips: float = 20000.0
+    max_slippage_pips: float = 10000.0
 
     def __post_init__(self) -> None:
         if not 0 < self.max_risk_per_trade <= 0.05: raise ValueError("max_risk_per_trade must be in (0, 0.05]")
@@ -33,18 +36,17 @@ class Settings:
         def flag(name: str, default: bool) -> bool:
             return os.getenv(name, str(default)).lower() in {"1","true","yes","on"}
         return cls(
-            app_name=os.getenv("APP_NAME", cls.app_name),
-            environment=os.getenv("ENVIRONMENT", cls.environment),
-            okx_demo=flag("OKX_DEMO", True),
-            live_trading_enabled=flag("LIVE_TRADING_ENABLED", False),
+            app_name=os.getenv("APP_NAME", cls.app_name), environment=os.getenv("ENVIRONMENT", cls.environment),
+            okx_demo=flag("OKX_DEMO", True), live_trading_enabled=flag("LIVE_TRADING_ENABLED", False),
             paper_trading_enabled=flag("PAPER_TRADING_ENABLED", True),
             max_risk_per_trade=float(os.getenv("MAX_RISK_PER_TRADE", cls.max_risk_per_trade)),
-            max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", cls.max_daily_loss)),
-            max_drawdown=float(os.getenv("MAX_DRAWDOWN", cls.max_drawdown)),
+            max_daily_loss=float(os.getenv("MAX_DAILY_LOSS", cls.max_daily_loss)), max_drawdown=float(os.getenv("MAX_DRAWDOWN", cls.max_drawdown)),
             max_open_positions=int(os.getenv("MAX_OPEN_POSITIONS", cls.max_open_positions)),
             max_spread_fraction=float(os.getenv("MAX_SPREAD_FRACTION", cls.max_spread_fraction)),
             max_slippage_fraction=float(os.getenv("MAX_SLIPPAGE_FRACTION", cls.max_slippage_fraction)),
             min_signal_confidence=float(os.getenv("MIN_SIGNAL_CONFIDENCE", cls.min_signal_confidence)),
+            max_spread_pips=float(os.getenv("MAX_SPREAD_PIPS", cls.max_spread_pips)),
+            max_slippage_pips=float(os.getenv("MAX_SLIPPAGE_PIPS", cls.max_slippage_pips)),
         )
 
 
