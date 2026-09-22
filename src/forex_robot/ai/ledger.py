@@ -8,11 +8,17 @@ from typing import Any
 
 
 def _db_path() -> str:
-    return os.getenv("AI_LEDGER_DB", str(Path("data") / "ai_ledger.sqlite3"))
+    configured = os.getenv("AI_LEDGER_DB")
+    if configured:
+        # Vercel's deployment filesystem is read-only except for /tmp.
+        if os.getenv("VERCEL") and not os.path.isabs(configured):
+            return str(Path("/tmp") / Path(configured).name)
+        return configured
+    return "/tmp/ai_ledger.sqlite3" if os.getenv("VERCEL") else str(Path("data") / "ai_ledger.sqlite3")
 
 
 class AILedger:
-    """Durable, zero-dependency ledger for AI opinions and realized outcomes."""
+    """SQLite ledger for AI opinions and realized outcomes."""
 
     def __init__(self, path: str | None = None) -> None:
         self.path = path or _db_path()
