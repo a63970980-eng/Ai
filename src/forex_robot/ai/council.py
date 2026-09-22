@@ -248,7 +248,7 @@ def run_council(signal: Signal, regime: Regime) -> CouncilResult:
     stance_votes = {"LONG": 0.0, "SHORT": 0.0, "WAIT": 0.0}
     for x, w in zip(valid, weights):
         stance_votes[x.stance] += w
-    stance = max(stance_votes, key=stance_votes.get)
+    stance = max(stance_votes.items(), key=lambda item: item[1])[0]
     agreement = max(stance_votes.values()) / total_weight
 
     conflicts: list[str] = []
