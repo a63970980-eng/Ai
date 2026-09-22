@@ -206,7 +206,7 @@ def _risk_decision(request: RiskGateRequest | PaperExecuteRequest):
     )
     return evaluate_portfolio(
         account_state, request.signal, request.spread, limits=limits,
-        proposed_risk=request.proposed_risk, slippage=request.slippage,
+        proposed_risk=request.proposed_risk, slippage=getattr(request, "slippage", 0.0),
     )
 
 
@@ -431,7 +431,7 @@ def observability():
 def ai_models():
     registry = ModelRegistry()
     return {
-        "models": [profile.__dict__ for profile in registry.list()],
+        "models": [profile.__dict__ for profile in registry.profiles()],
         "configured_from_environment": bool(__import__("os").getenv("AI_COUNCIL_MODELS")),
         "execution": "disabled",
         "risk_authority": "risk_engine",
