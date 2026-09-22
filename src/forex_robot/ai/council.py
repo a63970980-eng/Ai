@@ -10,6 +10,7 @@ from typing import Any
 from forex_robot.domain.models import Signal
 from forex_robot.regime.detector import Regime
 from forex_robot.ai.registry import ModelRegistry
+from forex_robot.ai.ledger import ledger
 
 
 @dataclass(frozen=True)
@@ -232,8 +233,14 @@ def run_council(signal: Signal, regime: Regime) -> CouncilResult:
         return CouncilResult(opinions, 0.0, 0.0, "WAIT", ["all models failed"], 0, len(opinions))
 
     registry = ModelRegistry()
+    observed = {
+        (row["provider"], row["model"]): row["accuracy"]
+        for row in ledger.performance()
+        if row.get("accuracy") is not None and row.get("settled", 0) >= 5
+    }
     weights = [
-        max(0.05, x.confidence) * registry.weight(x.provider, x.model)
+        max(0.05, x.confidence)
+        * registry.weight(x.provider, x.model, observed.get((x.provider, x.model)))
         for x in valid
     ]
     total_weight = sum(weights)
