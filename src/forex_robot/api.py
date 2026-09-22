@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from forex_robot.ai.providers import build_ai_engine
+from forex_robot.ai.council import run_council
 from forex_robot.analytics import analytics
 from forex_robot.backtest.engine import run_backtest
 from forex_robot.backtest.exits import BacktestExitConfig
@@ -420,6 +421,27 @@ def research_walk_forward(request: WalkForwardRequest):
 @app.get("/api/v1/observability")
 def observability():
     return metrics.snapshot().__dict__
+
+
+@app.post("/api/v1/ai/council")
+def ai_council(request: AIScoreRequest):
+    """Run all configured AI council members, then return consensus only.
+
+    This endpoint never places orders. Deterministic risk controls remain
+    authoritative outside the model council.
+    """
+    result = run_council(request.signal, request.regime)
+    return {
+        "consensus_score": result.consensus_score,
+        "agreement": result.agreement,
+        "stance": result.stance,
+        "conflicts": result.conflicts,
+        "successful_models": result.successful_models,
+        "failed_models": result.failed_models,
+        "opinions": [op.__dict__ for op in result.opinions],
+        "risk_authority": "risk_engine",
+        "execution": "disabled",
+    }
 
 
 @app.post("/api/v1/stress")
