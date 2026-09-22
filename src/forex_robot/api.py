@@ -157,7 +157,7 @@ def health():
         "live_trading": settings.live_trading_enabled,
         "paper_trading": settings.paper_trading_enabled,
         "ai_provider": ai_provider,
-        "market_feed": "oanda" if market_feed else "not_configured",
+        "market_feed": getattr(market_feed, "provider_name", market_feed.__class__.__name__.replace("MarketData", "").lower()) if market_feed else "not_configured",
         "uptime_since": started.isoformat(),
     }
 
@@ -383,7 +383,7 @@ def diagnostics():
         "live_gate": "closed" if not settings.live_trading_enabled else "configured",
         "ai_provider": ai_provider,
         "market_feed_configured": market_feed is not None,
-        "database": "schema_present; runtime journal wiring not configured",
+        "database": "sqlite_journal",
         "vercel_entrypoint": "api.py",
     }
 
