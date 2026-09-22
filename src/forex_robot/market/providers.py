@@ -42,7 +42,7 @@ class OandaMarketData(_HttpMarketData):
     def _request_json(self, url: str) -> dict:
         return super()._request_json(
             url,
-            headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
+            headers=headers or {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
         )
 
     def candles(self, symbol: str, granularity: str = "M1", count: int = 250) -> CandleFeed:
