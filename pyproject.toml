@@ -1,7 +1,7 @@
 [project]
-name = "ai-forex-trading-robot"
+name = "ai-crypto-quant-trading-robot"
 version = "0.2.0"
-description = "Research-grade AI Forex trading system with risk controls, backtesting and broker adapters."
+description = "Research-grade AI crypto trading system with deterministic risk controls, backtesting and exchange boundaries."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",
