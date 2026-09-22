@@ -9,6 +9,7 @@ from typing import Any
 
 from forex_robot.domain.models import Signal
 from forex_robot.regime.detector import Regime
+from forex_robot.ai.registry import ModelRegistry
 
 
 @dataclass(frozen=True)
@@ -230,7 +231,11 @@ def run_council(signal: Signal, regime: Regime) -> CouncilResult:
     if not valid:
         return CouncilResult(opinions, 0.0, 0.0, "WAIT", ["all models failed"], 0, len(opinions))
 
-    weights = [max(0.05, x.confidence) for x in valid]
+    registry = ModelRegistry()
+    weights = [
+        max(0.05, x.confidence) * registry.weight(x.provider, x.model)
+        for x in valid
+    ]
     total_weight = sum(weights)
     consensus = sum(x.score * w for x, w in zip(valid, weights)) / total_weight
     stance_votes = {"LONG": 0.0, "SHORT": 0.0, "WAIT": 0.0}
