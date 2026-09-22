@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "AI Crypto Quant Trading Robot"
     environment: str = "development"
+    okx_demo: bool = True
     live_trading_enabled: bool = False
     paper_trading_enabled: bool = True
     max_risk_per_trade: float = 0.005
@@ -24,6 +26,7 @@ class Settings:
         if self.max_spread_fraction <= 0 or self.max_slippage_fraction < 0: raise ValueError("spread/slippage limits invalid")
         if not 0 <= self.min_signal_confidence <= 1: raise ValueError("min_signal_confidence must be in [0, 1]")
         if self.live_trading_enabled and self.environment != "production": raise ValueError("live trading requires production environment")
+        if self.live_trading_enabled and self.okx_demo: raise ValueError("live trading cannot use OKX demo")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,6 +35,7 @@ class Settings:
         return cls(
             app_name=os.getenv("APP_NAME", cls.app_name),
             environment=os.getenv("ENVIRONMENT", cls.environment),
+            okx_demo=flag("OKX_DEMO", True),
             live_trading_enabled=flag("LIVE_TRADING_ENABLED", False),
             paper_trading_enabled=flag("PAPER_TRADING_ENABLED", True),
             max_risk_per_trade=float(os.getenv("MAX_RISK_PER_TRADE", cls.max_risk_per_trade)),
@@ -42,5 +46,6 @@ class Settings:
             max_slippage_fraction=float(os.getenv("MAX_SLIPPAGE_FRACTION", cls.max_slippage_fraction)),
             min_signal_confidence=float(os.getenv("MIN_SIGNAL_CONFIDENCE", cls.min_signal_confidence)),
         )
+
 
 settings = Settings.from_env()
