@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 from dataclasses import asdict, dataclass
@@ -38,14 +37,17 @@ class TradeJournalEntry:
 
 
 class Journal:
-    """Small durable journal with SQLite persistence and an in-memory-safe default.
+    """SQLite trade journal.
 
-    Set AI_JOURNAL_DB to a persistent filesystem path in a long-running deployment.
-    Serverless filesystems remain instance-local/ephemeral unless backed by external storage.
+    On serverless deployments the default filesystem is ephemeral; configure
+    AI_JOURNAL_DB to an external/persistent database path for durable storage.
     """
 
     def __init__(self, path: str | None = None) -> None:
-        configured = path or os.getenv("AI_JOURNAL_DB", "/tmp/ai_trades.sqlite3" if os.getenv("VERCEL") else "data/trades.sqlite3")
+        configured: str = path if path is not None else os.getenv(
+            "AI_JOURNAL_DB",
+            "/tmp/ai_trades.sqlite3" if os.getenv("VERCEL") else "data/trades.sqlite3",
+        )
         self.path = configured
         self._lock = Lock()
         if configured != ":memory:":
