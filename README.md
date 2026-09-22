@@ -31,6 +31,8 @@ A safety-first quantitative Forex research and paper-trading platform. Determini
 - Market-feed corruption checks for missing OHLC, invalid values and duplicate timestamps
 - Execution reconciliation and connection-health boundaries
 - FastAPI `/api/v1/*` surface for health, settings, diagnostics, deterministic pipeline evaluation, scoring, risk, backtesting, analytics and stress analysis
+- Multi-model AI Council: OpenAI, Gemini, OpenRouter-hosted open models and local OpenAI-compatible models can participate concurrently
+- Two-pass model review: independent analysis followed by peer-aware critique and weighted consensus
 - Responsive dark quantitative terminal dashboard
 - PostgreSQL schema covering accounts, instruments, market data, signals, orders, positions, trades, strategies, risk, news, backtests, predictions and audit events
 - Docker Compose with PostgreSQL and a container healthcheck
@@ -62,7 +64,7 @@ The API listens on port `8000`; the terminal is served from `/`.
 
 ## AI providers
 
-`OPENROUTER_API_KEY` and `GEMINI_API_KEY` are supported as deployment secrets for future/provider-specific AI reasoning. They are intentionally absent from source control and do not authorize live trading by themselves.
+`OPENAI_API_KEY`, `GEMINI_API_KEY` and `OPENROUTER_API_KEY` can be supplied as deployment secrets. `AI_COUNCIL_MODELS` can explicitly list providers/models as `provider:model,provider:model`; supported providers are `openai`, `gemini`, `openrouter` and `local`. When `LOCAL_AI_BASE_URL` is set, local OpenAI-compatible models can participate without a hosted API. The council runs a first-pass analysis and a second peer-review pass. Its consensus never bypasses deterministic risk controls or enables live trading.
 
 ## Deployment
 
