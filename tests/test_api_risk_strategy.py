@@ -40,3 +40,12 @@ def test_risk_api_blocks_portfolio_limit():
     )
     assert response.status_code == 200
     assert response.json()["reason"] == "portfolio_risk_limit"
+
+
+def test_risk_api_blocks_excessive_slippage():
+    response = client.post(
+        "/api/v1/risk/evaluate",
+        json={"signal": signal_payload(), "spread": 0.00005, "slippage": 0.00020},
+    )
+    assert response.status_code == 200
+    assert response.json()["reason"] == "slippage"
