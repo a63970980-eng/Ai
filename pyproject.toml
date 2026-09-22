@@ -31,5 +31,5 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 
-[tool.vercel]
+[project.optional-dependencies.research]\nvectorbt = ["vectorbt>=0.28"]\nscikit = ["scikit-learn>=1.5,<2"]\n\n[project.optional-dependencies.observability]\nprometheus = ["prometheus-client>=0.20,<1"]\n\n[tool.vercel]
 entrypoint = "src.forex_robot.api:app"
