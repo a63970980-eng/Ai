@@ -45,7 +45,7 @@ class Journal:
     """
 
     def __init__(self, path: str | None = None) -> None:
-        configured = path or os.getenv("AI_JOURNAL_DB", "data/trades.sqlite3")
+        configured = path or os.getenv("AI_JOURNAL_DB", "/tmp/ai_trades.sqlite3" if os.getenv("VERCEL") else "data/trades.sqlite3")
         self.path = configured
         self._lock = Lock()
         if configured != ":memory:":
