@@ -21,6 +21,7 @@ from forex_robot.domain.models import PositionSizeRequest, PositionSizeResponse,
 from forex_robot.domain.trading import AccountState, OrderRequest
 from forex_robot.execution.broker import PaperBroker
 from forex_robot.market.providers import build_market_feed
+from forex_robot.journal import Journal, TradeJournalEntry
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
 from forex_robot.pipeline import evaluate_pipeline
 from forex_robot.regime.detector import Regime, detect_regime
@@ -35,6 +36,7 @@ from forex_robot.strategies.scalping import breakout, liquidity, mean_reversion,
 app = FastAPI(title="AI Forex Trading Platform", version="1.6.0", docs_url="/docs")
 risk_manager = RiskManager()
 paper_broker = PaperBroker()
+journal = Journal()
 ai_engine, ai_provider = build_ai_engine()
 market_feed = build_market_feed()
 started = datetime.now(timezone.utc)
@@ -316,6 +318,25 @@ def paper_execute(request: PaperExecuteRequest):
     )
     try:
         order_id = paper_broker.place(order)
+        journal.record(
+            TradeJournalEntry(
+                timestamp=request.signal.timestamp,
+                pair=request.signal.symbol,
+                direction=request.signal.side.value,
+                entry=request.signal.entry,
+                stop_loss=request.signal.stop_loss,
+                take_profit=request.signal.take_profit,
+                units=order.units,
+                risk=request.proposed_risk or settings.max_risk_per_trade,
+                signal_score=request.signal.confidence,
+                strategy="paper",
+                regime="unknown",
+                session="unknown",
+                spread=request.spread,
+                slippage=0.0,
+                ai_analysis=request.signal.reason,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"executed": True, "mode": "paper", "order_id": order_id, "signal": request.signal.model_dump(mode="json")}
@@ -388,13 +409,13 @@ def positions():
 
 
 @app.get("/api/v1/trades")
-def trades():
-    return {"trades": [], "source": "journal_storage_not_configured"}
+def trades(limit: int = Query(default=100, ge=1, le=5000)):
+    return {"trades": journal.all(limit), "source": "sqlite_journal"}
 
 
 @app.get("/api/v1/journal")
-def journal():
-    return {"entries": [], "source": "journal_storage_not_configured"}
+def journal_entries(limit: int = Query(default=100, ge=1, le=5000)):
+    return {"entries": journal.all(limit), "source": "sqlite_journal"}
 
 
 @app.post("/api/v1/analytics")
