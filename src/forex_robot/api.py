@@ -17,6 +17,7 @@ from forex_robot.domain.trading import AccountState, OrderRequest
 from forex_robot.execution.broker import PaperBroker
 from forex_robot.market.providers import build_market_feed
 from forex_robot.portfolio.risk import PortfolioRiskLimits, evaluate_portfolio
+from forex_robot.pipeline import evaluate_pipeline
 from forex_robot.regime.detector import Regime, detect_regime
 from forex_robot.risk.manager import RiskManager
 from forex_robot.robustness.stress import stress_returns
@@ -185,7 +186,7 @@ def _risk_decision(request: RiskGateRequest | PaperExecuteRequest):
     )
     return evaluate_portfolio(
         account_state, request.signal, request.spread, limits=limits,
-        proposed_risk=request.proposed_risk, slippage=0.0,
+        proposed_risk=request.proposed_risk, slippage=request.slippage,
     )
 
 
@@ -298,6 +299,52 @@ def paper_execute(request: PaperExecuteRequest):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"executed": True, "mode": "paper", "order_id": order_id, "signal": request.signal.model_dump(mode="json")}
+
+
+class PipelineRequest(BaseModel):
+    candles: list[dict] = Field(default_factory=list)
+    symbol: str | None = None
+    min_score: float = Field(default=70.0, ge=0, le=100)
+    require_liquidity_sweep: bool = False
+    require_retest: bool = False
+
+
+@app.post("/api/v1/pipeline/evaluate")
+def pipeline_evaluate(request: PipelineRequest):
+    """Run the deterministic research pipeline without placing an order."""
+    if len(request.candles) < 30:
+        raise HTTPException(422, "at least 30 candles required")
+    df = pd.DataFrame(request.candles)
+    required = {"open", "high", "low", "close"}
+    if not required.issubset(df.columns):
+        raise HTTPException(422, "OHLC columns required")
+    try:
+        result = evaluate_pipeline(
+            df,
+            min_score=request.min_score,
+            require_liquidity_sweep=request.require_liquidity_sweep,
+            require_retest=request.require_retest,
+            symbol=request.symbol,
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return result.__dict__
+
+
+@app.get("/api/v1/diagnostics")
+def diagnostics():
+    """Expose deployment/runtime diagnostics without secrets."""
+    return {
+        "api": "ready",
+        "environment": settings.environment,
+        "paper_trading": settings.paper_trading_enabled,
+        "live_trading": settings.live_trading_enabled,
+        "live_gate": "closed" if not settings.live_trading_enabled else "configured",
+        "ai_provider": ai_provider,
+        "market_feed_configured": market_feed is not None,
+        "database": "schema_present; runtime journal wiring not configured",
+        "vercel_entrypoint": "api.py",
+    }
 
 
 @app.post("/api/v1/market")
