@@ -25,6 +25,10 @@ research = [
 observability = [
   "prometheus-client>=0.20,<1",
 ]
+ai = [
+  "litellm>=1.70,<2",
+  "langgraph>=1.0,<2",
+]
 
 [tool.vercel]
 entrypoint = "src.forex_robot.api:app"
