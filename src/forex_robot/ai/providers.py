@@ -94,7 +94,7 @@ class OpenRouterPredictor:
 
     def predict_score(self, signal: Signal, regime: Regime) -> float:
         prompt = (
-            "You are a constrained forex signal-ranking model. Return ONLY JSON with keys "
+            "You are a constrained crypto signal-ranking model. Return ONLY JSON with keys "
             "score and explanation. score must be 0..1. Do not invent market data, do not "
             "override risk controls, and do not issue trade instructions. "
             f"Regime={regime.value}; signal={signal.model_dump()}"
@@ -104,7 +104,7 @@ class OpenRouterPredictor:
             "temperature": 0,
             "max_tokens": 160,
             "messages": [
-                {"role": "system", "content": "Rank the supplied candidate only."},
+                {"role": "system", "content": "Rank the supplied crypto candidate only."},
                 {"role": "user", "content": prompt},
             ],
         }
@@ -125,7 +125,7 @@ class GeminiPredictor:
     def predict_score(self, signal: Signal, regime: Regime) -> float:
         prompt = (
             "Return ONLY JSON: {\"score\": number, \"explanation\": string}. "
-            "score must be 0..1. Rank only the supplied forex candidate. Never override risk. "
+            "score must be 0..1. Rank only the supplied crypto candidate. Never override risk. "
             f"Regime={regime.value}; signal={signal.model_dump()}"
         )
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
